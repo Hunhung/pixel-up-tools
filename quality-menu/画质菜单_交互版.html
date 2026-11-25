@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>画质菜单 · 交互版（导入视频 + 像素特效 + 一键导出）</title>
+<style>
+  :root{
+    --bg:#99F0DD;     /* 薄荷青（参考图取色） */
+  }
+  html,body{
+    margin:0;height:100%;overflow:hidden;
+    background:#141414;
+    font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ══════════ 舞台：1080×1920 全部画在 canvas 上（导出才完整） ══════════ */
+  #stage{
+    position:absolute;left:50%;top:50%;
+    width:1080px;height:1920px;
+    transform-origin:center center;
+    cursor:none;
+  }
+  #cv{position:absolute;left:0;top:0;width:1080px;height:1920px;}
+  #vid{display:none;}
+
+  /* ══════════ 控制面板（不进导出画面） ══════════ */
+  #panel{
+    position:fixed;left:18px;top:18px;width:278px;z-index:99;
+    background:rgba(26,26,26,.95);border:1px solid #343434;border-radius:12px;
+    padding:14px 14px 12px;color:#dcdcdc;font-size:12.5px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);
+    backdrop-filter:blur(8px);
+    max-height:calc(100vh - 36px);overflow-y:auto;
+  }
+  #panel.hide{display:none;}
+  #panel h1{font-size:13px;margin:0 0 2px;color:#fff;font-weight:600;letter-spacing:.5px;}
+  #panel .sub{color:#8a8a8a;font-size:11px;margin-bottom:12px;line-height:1.5;}
+  .row{margin-bottom:11px;}
+  .row label{display:flex;justify-content:space-between;color:#a8a8a8;margin-bottom:5px;font-size:11.5px;}
+  .row label b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%;height:16px;-webkit-appearance:none;background:transparent;margin:0;}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;background:#3c3c3c;border-radius:2px;}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:#fff;margin-top:-5px;cursor:pointer;
+  }
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{
+    height:26px;padding:0 9px;border-radius:6px;border:1px solid #3c3c3c;background:#212121;
+    color:#bbb;font-size:11.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    font-family:inherit;
+  }
+  .chip.on{border-color:#fff;color:#fff;background:#333;}
+  .swatch{width:12px;height:12px;border-radius:3px;margin-right:5px;border:1px solid #666;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .grid2 input{
+    width:100%;box-sizing:border-box;height:28px;border-radius:6px;
+    border:1px solid #3c3c3c;background:#1b1b1b;color:#eee;
+    font-family:inherit;font-size:13px;padding:0 8px;font-weight:600;
+  }
+  .grid2 input:focus{outline:none;border-color:#fff;background:#000;}
+  /* 每档像素强度：一行 = 档名 + 滑杆 + 数值 */
+  #stlist{margin-top:2px;}
+  .stitem{display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+  .stitem .stname{width:40px;flex:none;font-size:11px;color:#a8a8a8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stitem input[type=range]{flex:1;min-width:0;}
+  .stitem .stval{width:58px;flex:none;text-align:right;font-size:11px;color:#fff;font-variant-numeric:tabular-nums;}
+  .stitem.off .stval{color:#8bb8ff;}
+  #importBtn,#exportBtn{
+    width:100%;height:32px;border-radius:7px;background:#1f1f1f;
+    color:#fff;font-size:12.5px;cursor:pointer;font-family:inherit;border:1px solid #3c3c3c;
+  }
+  #importBtn{border-style:dashed;border-color:#5a5a5a;}
+  #importBtn:hover,#exportBtn:hover{border-color:#fff;background:#262626;}
+  #exportBtn{border-style:solid;border-color:#4a6a4a;color:#9fe0a8;}
+  #exportBtn.rec{border-color:#ff5252;color:#ff6b6b;background:#2a1515;}
+  #fileName{color:#8a8a8a;font-size:11px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .timerow{display:flex;align-items:center;gap:8px;}
+  .timerow input{flex:1;}
+  #timeLbl{color:#9a9a9a;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tip{
+    margin-top:12px;padding-top:10px;border-top:1px solid #2e2e2e;
+    color:#7d7d7d;font-size:11px;line-height:1.7;
+  }
+  .tip kbd{
+    background:#2a2a2a;border:1px solid #3d3d3d;border-radius:4px;
+    padding:0 4px;font-family:inherit;color:#ccc;
+  }
+  /* ══════════ 时间轴（仅预览用，DOM 层，不进导出画面） ══════════ */
+  #tl{
+    position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:99;width:360px;
+    box-sizing:border-box;
+    background:rgba(26,26,26,.95);border:1px solid #343434;border-radius:12px;
+    padding:14px;color:#dcdcdc;font-size:12.5px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);backdrop-filter:blur(8px);
+    max-height:calc(100vh - 36px);overflow-y:auto;
+  }
+  #tl.hide{display:none;}
+  #tl h1{font-size:13px;margin:0 0 2px;color:#fff;font-weight:600;letter-spacing:.5px;}
+  #tl .sub{color:#8a8a8a;font-size:11px;margin-bottom:10px;line-height:1.5;}
+  #tlTime{font-size:24px;font-weight:600;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:.5px;}
+  #tlTime span{color:#8a8a8a;font-size:13px;font-weight:400;}
+  #tlc{
+    width:100%;height:72px;margin:10px 0 10px;border-radius:8px;box-sizing:border-box;
+    background:#161616;border:1px solid #2e2e2e;cursor:pointer;display:block;
+  }
+  #tlBtns{display:flex;gap:6px;margin-bottom:6px;}
+  #tlBtns button{
+    flex:1;height:28px;border-radius:7px;background:#191919;border:1px solid #3a3a3a;
+    color:#c9c9c9;font-size:11.5px;cursor:pointer;font-family:inherit;
+  }
+  #tlBtns button:hover{border-color:#6a6a6a;color:#fff;}
+  #marks{max-height:196px;overflow-y:auto;}
+  .mk{display:flex;align-items:center;gap:8px;height:30px;border-bottom:1px solid #232323;cursor:pointer;}
+  .mk:hover{background:#1e1e1e;}
+  .mk .mkt{color:#9fe0a8;font-variant-numeric:tabular-nums;font-size:12px;width:52px;flex:none;}
+  .mk .mkn{flex:1;color:#bdbdbd;font-size:12px;outline:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mk .mkn:empty::before{content:'备注（可输入，仅自己看）';color:#555;}
+  .mk .mkn:focus{color:#fff;}
+  .mk .mkx{color:#666;font-size:15px;width:20px;flex:none;text-align:center;line-height:30px;}
+  .mk:hover .mkx{color:#ff6b6b;}
+  .tlhint{margin-top:10px;padding-top:9px;border-top:1px solid #2e2e2e;color:#7d7d7d;font-size:11px;line-height:1.7;}
+
+  #dropHint{
+    position:fixed;inset:0;z-index:98;display:none;
+    align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);color:#fff;font-size:22px;letter-spacing:2px;
+    pointer-events:none;
+  }
+  body.dropping #dropHint{display:flex;}
+
+  /* 录制前 3 秒倒数（DOM 层，不进画面） */
+  #count{
+    position:fixed;inset:0;z-index:97;display:none;
+    align-items:center;justify-content:center;
+    color:#fff;font-size:190px;font-weight:700;letter-spacing:4px;
+    background:rgba(0,0,0,.22);
+    text-shadow:0 8px 30px rgba(0,0,0,.55);
+    pointer-events:none;font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<!-- 标准 MP4 封装（纯 JS，无依赖；顶层 var Mp4Muxer 挂到 window） -->
+<script src="mp4-muxer.js"></script>
+
+<div id="stage">
+  <canvas id="cv" width="1080" height="1920"></canvas>
+  <video id="vid" playsinline preload="auto"></video>
+</div>
+
+<div id="dropHint">松手导入视频</div>
+<div id="count"></div>
+
+<div id="panel">
+  <h1>画质菜单 · 交互版</h1>
+  <div class="sub">选哪档画质，视频就实时变成哪档的像素效果；菜单可拖动。</div>
+
+  <div class="row">
+    <button id="importBtn">导入视频（也可直接拖进来）</button>
+    <div id="fileName">未导入 · 画布显示薄荷青底</div>
+    <input type="file" id="fileInput" accept="video/*" hidden>
+  </div>
+
+  <div class="row">
+    <button id="exportBtn">⏺ 导出画面（含菜单+鼠标）</button>
+    <div id="recState" style="color:#8a8a8a;font-size:11px;margin-top:5px;">导出标准 MP4（时长正确），3 秒倒数后开始 —— 文件存到浏览器下载文件夹</div>
+  </div>
+
+  <div class="row">
+    <div class="chips">
+      <div class="chip" id="playBtn">▶ 播放</div>
+      <div class="chip" id="restartBtn">⏮ 回开头</div>
+      <div class="chip on" id="loopBtn">循环</div>
+      <div class="chip" id="muteBtn">静音</div>
+      <div class="chip on" id="coverBtn">填满</div>
+      <div class="chip" id="containBtn">完整</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="timerow">
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+      <span id="timeLbl">0:00 / 0:00</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>每档像素强度（单独调，越左越糊） <b id="resetSt" style="cursor:pointer;color:#8bb8ff;">重置</b></label>
+    <div id="stlist"></div>
+  </div>
+
+  <div class="row">
+    <label>鼠标描边粗细 <b id="vSw">0.50</b></label>
+    <input type="range" id="sw" min="0.18" max="1.20" step="0.02" value="0.50">
+  </div>
+
+  <div class="row">
+    <label>鼠标大小 <b id="vCw">52px</b></label>
+    <input type="range" id="cw" min="30" max="96" step="1" value="52">
+  </div>
+
+  <div class="row">
+    <label>背景色（无视频 / 完整模式黑边）</label>
+    <div class="chips" id="bgs">
+      <div class="chip on" data-bg="#99F0DD"><i class="swatch" style="background:#99F0DD"></i>薄荷青</div>
+      <div class="chip" data-bg="#00FF00"><i class="swatch" style="background:#00FF00"></i>纯绿</div>
+      <div class="chip" data-bg="#0000FF"><i class="swatch" style="background:#0000FF"></i>蓝</div>
+      <div class="chip" data-bg="#FF00FF"><i class="swatch" style="background:#FF00FF"></i>品红</div>
+      <div class="chip" data-bg="#000000"><i class="swatch" style="background:#000"></i>黑</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>菜单四档文字（可直接改）</label>
+    <div class="grid2" id="labels">
+      <input value="240p"><input value="480p">
+      <input value="720p"><input value="1080p">
+    </div>
+  </div>
+
+  <div class="tip">
+    <kbd>H</kbd> 隐藏面板 · <kbd>1</kbd>–<kbd>4</kbd> 快切画质 · <kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd><kbd>→</kbd> ±5s<br>
+    菜单：点下拉框展开，<kbd>↑</kbd><kbd>↓</kbd> + <kbd>Enter</kbd> 确认；按住可拖位置<br>
+    导出要带声音就别开静音；导出时正常操作即可，点菜单的全程都会被录下<br>
+    <span style="color:#9fe0a8">导出的 MP4 会保存到浏览器下载文件夹</span>（不会弹任何选文件夹的窗口）
+  </div>
+</div>
+
+<!-- ══════════ 辅助时间轴：只给自己看，导出（只录 canvas）时不会出现 ══════════ -->
+<div id="tl">
+  <h1>辅助时间轴</h1>
+  <div class="sub">只看不录 · 用来掐点做画质切换</div>
+  <div id="tlTime">0:00.0 <span>/ 0:00.0</span></div>
+  <canvas id="tlc" height="128"></canvas>
+  <div id="tlBtns">
+    <button id="addMark">＋ 在当前位置加标记</button>
+    <button id="clearMarks">清空标记</button>
+  </div>
+  <div id="marks"></div>
+  <div class="tlhint">
+    单击/拖动轨道 = 定位 · 双击轨道 = 加标记 · 双击标记 = 删除<br>
+    标记存在浏览器本地，换视频各自记住 · <kbd>H</kbd> 可一起隐藏
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════
+   状态
+   ══════════════════════════════════════════ */
+const stage = document.getElementById('stage');
+const cv    = document.getElementById('cv');
+const ctx   = cv.getContext('2d');
+const vid   = document.getElementById('vid');
+const panel = document.getElementById('panel');
+
+/* 每档的"等效分辨率宽"（画布 1080 宽 ÷ 该值 = 像素块边长）——每档都能单独调
+   默认值：240p=35px、480p=72px、720p=177px、1080p=原画（按用户的定稿截图） */
+const LEVELS_DEF = [35, 72, 177, 1080];
+let effs = LEVELS_DEF.slice();
+const EFF_MIN = 24, EFF_MAX = 1080;
+const t2eff = t => Math.max(EFF_MIN, Math.min(EFF_MAX,
+                    Math.round(EFF_MIN * Math.pow(EFF_MAX / EFF_MIN, t / 1000))));
+const eff2t = e => Math.round(1000 * Math.log(Math.max(EFF_MIN, e) / EFF_MIN)
+                    / Math.log(EFF_MAX / EFF_MIN));
+let labels   = ['240p', '480p', '720p', '1080p'];
+let selected = 0, hot = 0, open = false;
+let bg = '#99F0DD';
+let fitMode = 'cover';
+let cursorW = 52, cursorSW = 0.50;
+let comboX = 36, comboY = 150;    /* 默认位置：比原来下移一点 */
+let mouse = null;                 /* 画布坐标下的鼠标位置 */
+let pressedUntil = 0;             /* 按钮下压反馈 */
+
+/* 几何（全部按 1080×1920 画布坐标；菜单栏 = 原尺寸 0.715 倍） */
+const CMB = {w:644, h:75, pad:7, gap:7, btn:62, bd:2};
+function rects(){
+  const x = comboX, y = comboY;
+  const inner = {x:x+CMB.bd, y:y+CMB.bd, w:CMB.w-CMB.bd*2, h:CMB.h-CMB.bd*2};
+  const field = {x:inner.x+CMB.pad, y:inner.y+CMB.pad,
+                 w:inner.w-CMB.pad*2-CMB.gap-CMB.btn, h:inner.h-CMB.pad*2};
+  const btn   = {x:field.x+field.w+CMB.gap, y:field.y, w:CMB.btn, h:field.h};
+  const menu  = {x:comboX, y:comboY+CMB.h+20, w:701, h:286};
+  return {combo:{x,y,w:CMB.w,h:CMB.h}, field, btn, menu};
+}
+const inR = (p,r) => !!p && p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h;
+
+function toStage(clientX, clientY){
+  const r = stage.getBoundingClientRect();
+  const s = r.width / 1080;
+  return {x:(clientX-r.left)/s, y:(clientY-r.top)/s};
+}
+
+/* ══════════════════════════════════════════
+   绘制
+   ══════════════════════════════════════════ */
+const off  = document.createElement('canvas');
+const octx = off.getContext('2d');
+const FONT = '"Segoe UI","Microsoft YaHei",Arial,sans-serif';
+
+function bevel(r, light, dark, w){
+  ctx.fillStyle = light;
+  ctx.fillRect(r.x, r.y, r.w, w);
+  ctx.fillRect(r.x, r.y, w, r.h);
+  ctx.fillStyle = dark;
+  ctx.fillRect(r.x, r.y+r.h-w, r.w, w);
+  ctx.fillRect(r.x+r.w-w, r.y, w, r.h);
+}
+
+function drawVideo(){
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1080, 1920);
+  if (!vw || !vh){
+    ctx.fillStyle = 'rgba(0,0,0,.30)';
+    ctx.font = '600 54px ' + FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('拖入视频，或点右侧「导入视频」', 540, 1020);
+    return;
+  }
+  const s  = fitMode === 'cover' ? Math.max(1080/vw, 1920/vh) : Math.min(1080/vw, 1920/vh);
+  const dw = Math.round(vw*s), dh = Math.round(vh*s);
+  const dx = (1080-dw)/2, dy = (1920-dh)/2;
+  const eff = effs[selected];
+  if (eff >= 1080){
+    ctx.drawImage(vid, dx, dy, dw, dh);
+  } else {
+    const k  = eff / 1080;
+    const ow = Math.max(2, Math.round(dw*k)), oh = Math.max(2, Math.round(dh*k));
+    if (off.width !== ow || off.height !== oh){ off.width = ow; off.height = oh; }
+    octx.imageSmoothingEnabled = true;
+    octx.imageSmoothingQuality = 'high';
+    octx.drawImage(vid, 0, 0, ow, oh);
+    ctx.imageSmoothingEnabled = false;   /* 关插值 → 硬像素块 */
+    ctx.drawImage(off, dx, dy, dw, dh);
+  }
+}
+
+const CTL='#d4d0c8', CTL_DK='#6b6b6b', CTL_LT='#f4f2ec', CTL_PRESS='#c3bfb7';
+
+function drawCombo(){
+  const R = rects();
+  const pressed = open || performance.now() < pressedUntil;
+  ctx.fillStyle = CTL; ctx.fillRect(R.combo.x, R.combo.y, R.combo.w, R.combo.h);
+  bevel(R.combo, CTL_LT, CTL_DK, CMB.bd);
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(R.combo.x+1, R.combo.y+1, R.combo.w-2, R.combo.h-2);
+
+  ctx.fillStyle = '#fff'; ctx.fillRect(R.field.x, R.field.y, R.field.w, R.field.h);
+  bevel(R.field, CTL_DK, CTL_LT, CMB.bd);
+  ctx.strokeStyle = '#7a7a7a';
+  ctx.strokeRect(R.field.x+1, R.field.y+1, R.field.w-2, R.field.h-2);
+  ctx.fillStyle = '#000';
+  ctx.font = '700 40px ' + FONT;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(labels[selected], R.field.x+18, R.field.y+R.field.h/2+3);
+
+  ctx.fillStyle = pressed ? CTL_PRESS : CTL;
+  ctx.fillRect(R.btn.x, R.btn.y, R.btn.w, R.btn.h);
+  if (pressed) bevel(R.btn, CTL_DK, CTL_LT, CMB.bd);
+  else         bevel(R.btn, CTL_LT, CTL_DK, CMB.bd);
+  ctx.strokeStyle = '#555';
+  ctx.strokeRect(R.btn.x+1, R.btn.y+1, R.btn.w-2, R.btn.h-2);
+  const cx = R.btn.x + R.btn.w/2, cy = R.btn.y + R.btn.h/2 + (pressed?3:0);
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(cx-13, cy-9); ctx.lineTo(cx+13, cy-9); ctx.lineTo(cx, cy+9);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawMenu(){
+  if (!open) return;
+  const R = rects();
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.fillRect(R.menu.x+4, R.menu.y+4, R.menu.w, R.menu.h);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(R.menu.x, R.menu.y, R.menu.w, R.menu.h);
+  bevel(R.menu, '#f2f2f2', '#4a4a4a', 2);
+  ctx.strokeStyle = '#7a7a7a';
+  ctx.strokeRect(R.menu.x+1, R.menu.y+1, R.menu.w-2, R.menu.h-2);
+  const ih = (R.menu.h-4) / 4;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '700 42px ' + FONT;
+  for (let i = 0; i < 4; i++){
+    const iy = R.menu.y + 2 + i*ih;
+    if (i === hot){ ctx.fillStyle = '#000080'; ctx.fillRect(R.menu.x+2, iy, R.menu.w-4, ih); }
+    ctx.fillStyle = i === hot ? '#fff' : '#000';
+    ctx.fillText(labels[i], R.menu.x+23, iy + ih/2 + 3);
+  }
+}
+
+/* 箭头：热点 = 尖端 (0.7, 0.7) */
+const ARROW = new Path2D('M0.7 0.7 L0.7 16.4 L4.4 12.9 L7.0 19.2 L9.4 18.2 L6.8 12.0 L11.3 12.0 Z');
+
+/* Windows 自带的"链接手型"光标：C://Windows//Cursors//aero_link.cur
+   （文件内自带 32/48/64/96/128 五档，这里用 128×128 那档，热点=(25,0) 即指尖）
+   原图 base64 内嵌，页面仍是单文件、不依赖系统路径 */
+const HAND_IMG = new Image();
+HAND_IMG.src = 'data:image/png;base64,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';
+const HAND_PX = 128, HAND_HOT_X = 25, HAND_HOT_Y = 0;
+
+let pressVisUntil = 0;
+
+/* 悬停在下拉框 / 展开的菜单项上（可点区域）→ 用 Windows 手型 */
+function cursorOnClickable(){
+  if (!mouse) return false;
+  const R = rects();
+  if (open && inR(mouse, R.menu)){
+    const ih = (R.menu.h - 4) / 4;
+    const i = Math.floor((mouse.y - R.menu.y - 2) / ih);
+    return i >= 0 && i < 4;
+  }
+  return inR(mouse, R.combo);
+}
+
+function drawCursor(){
+  if (!mouse) return;
+  const press = performance.now() < pressVisUntil ? 0.92 : 1;
+
+  /* 手型：官方原图，按热点对齐鼠标位置，等比缩放（手比箭头略大） */
+  if (cursorOnClickable() && HAND_IMG.complete && HAND_IMG.naturalWidth){
+    const s = cursorW * 2.2 * press / HAND_PX;   /* 2.2 → 手的可见高度≈箭头高度(80px) */
+    ctx.drawImage(HAND_IMG,
+      mouse.x - HAND_HOT_X * s, mouse.y - HAND_HOT_Y * s,
+      HAND_PX * s, HAND_PX * s);
+    return;
+  }
+
+  /* 其他位置：箭头 */
+  const s = cursorW / 12 * press;
+  ctx.save();
+  ctx.translate(mouse.x, mouse.y);
+  ctx.scale(s, s);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.lineWidth = cursorSW;
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000';
+  ctx.fill(ARROW); ctx.stroke(ARROW);
+  ctx.restore();
+}
+
+function draw(){
+  drawVideo();
+  drawMenu();
+  drawCombo();
+  drawCursor();
+  drawTL();          /* 时间轴画在自己的 canvas 上，与导出画面无关 */
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ══════════════════════════════════════════
+   鼠标交互（命中测试）
+   ══════════════════════════════════════════ */
+function openMenu(){ if (open) return; open = true; hot = selected; }
+function closeMenu(){ open = false; }
+function choose(i){
+  selected = i; open = false;
+  pressedUntil = performance.now() + 130;
+}
+
+let drag = null;
+stage.addEventListener('mousedown', e => {
+  const p = toStage(e.clientX, e.clientY);
+  const R = rects();
+  if (open && inR(p, R.menu)){
+    const ih = (R.menu.h-4)/4;
+    const i = Math.floor((p.y - R.menu.y - 2) / ih);
+    if (i >= 0 && i < 4){ choose(i); pressVisUntil = performance.now() + 110; }
+    return;
+  }
+  if (inR(p, R.combo)){
+    drag = {sx:p.x, sy:p.y, ox:comboX, oy:comboY, moved:false};
+    pressVisUntil = performance.now() + 110;
+    return;
+  }
+  closeMenu();
+});
+window.addEventListener('mousemove', e => {
+  const r = stage.getBoundingClientRect();
+  const inside = e.clientX >= r.left && e.clientX <= r.right &&
+                 e.clientY >= r.top  && e.clientY <= r.bottom;
+  mouse = inside ? toStage(e.clientX, e.clientY) : null;
+  if (!mouse) return;
+  if (drag){
+    if (Math.hypot(mouse.x-drag.sx, mouse.y-drag.sy) > 6) drag.moved = true;
+    if (drag.moved){
+      comboX = Math.min(Math.max(0, drag.ox + mouse.x - drag.sx), 1080 - CMB.w);
+      comboY = Math.min(Math.max(0, drag.oy + mouse.y - drag.sy), 1920 - CMB.h);
+    }
+    return;
+  }
+  if (open){
+    const R = rects();
+    if (inR(mouse, R.menu)){
+      const ih = (R.menu.h-4)/4;
+      const i = Math.floor((mouse.y - R.menu.y - 2) / ih);
+      if (i >= 0 && i < 4) hot = i;
+    }
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (!drag) return;
+  const moved = drag.moved;
+  drag = null;
+  if (!moved) open ? closeMenu() : openMenu();
+});
+
+/* ══════════════════════════════════════════
+   视频导入与控制
+   ══════════════════════════════════════════ */
+const fileInput = document.getElementById('fileInput');
+const fileName  = document.getElementById('fileName');
+const playBtn   = document.getElementById('playBtn');
+const seek      = document.getElementById('seek');
+const timeLbl   = document.getElementById('timeLbl');
+let objURL = null;
+
+function fmt(t){
+  t = Math.max(0, t || 0);
+  return Math.floor(t/60) + ':' + String(Math.floor(t%60)).padStart(2,'0');
+}
+function loadVideo(file){
+  if (objURL) URL.revokeObjectURL(objURL);
+  objURL = URL.createObjectURL(file);
+  vid.src = objURL;
+  fileName.textContent = file.name;
+  loadMarks();                       /* 换视频 → 换一套标记 */
+  vid.addEventListener('loadeddata', () => {
+    vid.play().catch(() => { vid.muted = true; syncChips(); vid.play(); });
+  }, { once: true });
+}
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadVideo(fileInput.files[0]); });
+document.getElementById('importBtn').addEventListener('click', () => fileInput.click());
+
+window.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('dropping'); });
+window.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  document.body.classList.remove('dropping');
+  const f = [...(e.dataTransfer.files || [])].find(f => f.type.startsWith('video/'));
+  if (f) loadVideo(f);
+});
+
+function syncChips(){
+  playBtn.textContent = vid.paused ? '▶ 播放' : '⏸ 暂停';
+  playBtn.classList.toggle('on', !vid.paused);
+  document.getElementById('loopBtn').classList.toggle('on', vid.loop);
+  document.getElementById('muteBtn').classList.toggle('on', vid.muted);
+  document.getElementById('coverBtn').classList.toggle('on', fitMode === 'cover');
+  document.getElementById('containBtn').classList.toggle('on', fitMode === 'contain');
+}
+playBtn.addEventListener('click', () => { vid.paused ? vid.play() : vid.pause(); });
+document.getElementById('restartBtn').addEventListener('click', () => { vid.currentTime = 0; vid.play(); });
+document.getElementById('loopBtn').addEventListener('click', () => { vid.loop = !vid.loop; syncChips(); });
+document.getElementById('muteBtn').addEventListener('click', () => { vid.muted = !vid.muted; syncChips(); });
+document.getElementById('coverBtn').addEventListener('click',   () => { fitMode = 'cover';   syncChips(); });
+document.getElementById('containBtn').addEventListener('click', () => { fitMode = 'contain'; syncChips(); });
+vid.addEventListener('play',  syncChips);
+vid.addEventListener('pause', syncChips);
+
+let seeking = false;
+vid.addEventListener('timeupdate', () => {
+  if (vid.duration){
+    if (!seeking) seek.value = Math.round(vid.currentTime / vid.duration * 1000);
+    timeLbl.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration);
+  }
+});
+seek.addEventListener('input', () => { if (vid.duration) vid.currentTime = seek.value/1000*vid.duration; });
+seek.addEventListener('mousedown', () => seeking = true);
+window.addEventListener('mouseup', () => seeking = false);
+
+/* ══════════════════════════════════════════
+   辅助时间轴（自己看 / 掐点用，DOM 层不进导出）
+   ══════════════════════════════════════════ */
+const tlEl     = document.getElementById('tl');
+const tlc      = document.getElementById('tlc');
+const tctx     = tlc.getContext('2d');
+const tlTimeEl = document.getElementById('tlTime');
+const marksBox = document.getElementById('marks');
+let marks = [];          /* [{t: 秒, note: '备注'}] */
+let scrubTL = false;
+let tlLastLabel = '';
+let TLD = {w: 330, h: 72};
+
+function fmtT(t){
+  t = Math.max(0, t || 0);
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
+}
+
+/* ── 标记持久化：按文件名各存一份，换视频互不干扰 ── */
+function mkKey(){
+  const n = fileName.textContent;
+  const ok = n && n !== '未导入 · 画布显示薄荷青底';
+  return 'pixmenu_marks_v1::' + (ok ? n : (vid.currentSrc || 'default'));
+}
+function loadMarks(){
+  try{
+    const raw = localStorage.getItem(mkKey());
+    marks = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(marks)) marks = [];
+    marks = marks.filter(m => m && typeof m.t === 'number');
+  }catch(e){ marks = []; }
+  marks.sort((a, b) => a.t - b.t);
+  renderMarks();
+}
+function saveMarks(){
+  try{ localStorage.setItem(mkKey(), JSON.stringify(marks)); }catch(e){}
+}
+function addMark(t){
+  const D = vid.duration;
+  if (!D || !isFinite(D)) return;
+  marks.push({t: Math.min(D, Math.max(0, t)), note: ''});
+  marks.sort((a, b) => a.t - b.t);
+  saveMarks(); renderMarks();
+}
+function delMark(i){ marks.splice(i, 1); saveMarks(); renderMarks(); }
+
+function renderMarks(){
+  marksBox.innerHTML = '';
+  marks.forEach((mk, i) => {
+    const row = document.createElement('div'); row.className = 'mk';
+    const tt = document.createElement('span'); tt.className = 'mkt'; tt.textContent = fmtT(mk.t);
+    const nn = document.createElement('span'); nn.className = 'mkn';
+    nn.contentEditable = 'true'; nn.textContent = mk.note || '';
+    const xx = document.createElement('span'); xx.className = 'mkx'; xx.textContent = '×';
+    row.append(tt, nn, xx);
+
+    row.addEventListener('click', e => {
+      if (e.target === nn) return;                    /* 正在写备注就别跳 */
+      vid.currentTime = mk.t;
+    });
+    nn.addEventListener('input', () => { mk.note = nn.textContent; saveMarks(); });
+    nn.addEventListener('keydown', e => {
+      if (e.key === 'Enter'){ e.preventDefault(); nn.blur(); }
+      e.stopPropagation();                            /* 别让空格/方向键触发全局快捷键 */
+    });
+    xx.addEventListener('click', e => { e.stopPropagation(); delMark(i); });
+    marksBox.appendChild(row);
+  });
+}
+
+function fitTL(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = tlc.clientWidth || 328;
+  const h = tlc.clientHeight || 72;
+  TLD = {w, h};
+  tlc.width  = Math.round(w * dpr);
+  tlc.height = Math.round(h * dpr);
+  tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+const X0 = 6;
+const tlFracAt = clientX => {
+  const r = tlc.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (clientX - r.left - X0) / Math.max(1, r.width - X0 * 2)));
+};
+const tlXOf = (t, D) => X0 + Math.min(1, Math.max(0, t / D)) * (TLD.w - X0 * 2);
+
+function drawTL(){
+  const W = TLD.w, H = TLD.h;
+  tctx.clearRect(0, 0, W, H);
+  const D = vid.duration;
+  const has = D && isFinite(D) && D > 0;
+  const tw = W - X0 * 2;
+
+  tctx.fillStyle = '#0f0f0f';
+  tctx.fillRect(X0, 0, tw, H);
+
+  if (!has){
+    tctx.fillStyle = '#4a4a4a';
+    tctx.font = '600 12px ' + FONT;
+    tctx.textAlign = 'center'; tctx.textBaseline = 'middle';
+    tctx.fillText('导入视频后可用', W / 2, H / 2);
+    if (tlLastLabel !== 'idle'){
+      tlLastLabel = 'idle';
+      tlTimeEl.innerHTML = '0:00.0 <span>/ 0:00.0</span>';
+    }
+    return;
+  }
+
+  /* 刻度：按可用宽度自适应 0.5s~10min */
+  let step = 600;
+  for (const s of [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300]){
+    if (tw / (D / s) >= 46){ step = s; break; }
+  }
+  tctx.strokeStyle = '#2a2a2a'; tctx.lineWidth = 1;
+  tctx.fillStyle = '#5a5a5a';
+  tctx.font = '10px ' + FONT;
+  tctx.textAlign = 'center'; tctx.textBaseline = 'bottom';
+  for (let t = 0; t <= D + 1e-6; t += step){
+    const x = tlXOf(t, D);
+    tctx.beginPath(); tctx.moveTo(x, H - 14); tctx.lineTo(x, H); tctx.stroke();
+    const lbl = fmtT(t).replace(/\.0$/, '');
+    if (t === 0 ? true : x > X0 + 16){
+      tctx.fillText(lbl, x, H - 17);
+    }
+  }
+
+  /* 已播进度 + 播放头 */
+  const cur = Math.min(D, vid.currentTime || 0);
+  const px = tlXOf(cur, D);
+  tctx.fillStyle = 'rgba(153,240,221,.18)';
+  tctx.fillRect(X0, 0, px - X0, H);
+  tctx.fillStyle = 'rgba(153,240,221,.55)';
+  tctx.fillRect(X0, H - 3, px - X0, 3);
+
+  /* 标记：黄色三角 + 竖线 */
+  marks.forEach(mk => {
+    const x = tlXOf(mk.t, D);
+    tctx.fillStyle = 'rgba(255,215,94,.45)';
+    tctx.fillRect(Math.round(x), 0, 1, H);
+    tctx.fillStyle = '#ffd75e';
+    tctx.beginPath();
+    tctx.moveTo(x - 5, 0); tctx.lineTo(x + 5, 0); tctx.lineTo(x, 9);
+    tctx.closePath(); tctx.fill();
+  });
+
+  /* 播放头 */
+  tctx.fillStyle = '#99F0DD';
+  tctx.fillRect(px - 1, 0, 2, H);
+  tctx.beginPath(); tctx.arc(px, H - 8, 4, 0, Math.PI * 2); tctx.fill();
+
+  const label = fmtT(cur) + '|' + fmtT(D);
+  if (label !== tlLastLabel){
+    tlLastLabel = label;
+    tlTimeEl.innerHTML = fmtT(cur) + ' <span>/ ' + fmtT(D) + '</span>';
+  }
+}
+
+/* ── 轨道交互：单击/拖动定位，双击加/删标记 ── */
+tlc.addEventListener('mousedown', e => {
+  if (!vid.duration || !isFinite(vid.duration)) return;
+  scrubTL = true;
+  vid.currentTime = tlFracAt(e.clientX) * vid.duration;
+});
+window.addEventListener('mousemove', e => {
+  if (!scrubTL || !vid.duration) return;
+  vid.currentTime = tlFracAt(e.clientX) * vid.duration;
+});
+window.addEventListener('mouseup', () => scrubTL = false);
+
+tlc.addEventListener('dblclick', e => {
+  const D = vid.duration;
+  if (!D || !isFinite(D)) return;
+  const x = e.clientX - tlc.getBoundingClientRect().left;
+  const hit = marks.findIndex(mk => Math.abs(tlXOf(mk.t, D) - x) < 7);
+  if (hit >= 0) delMark(hit);
+  else addMark(tlFracAt(e.clientX) * D);
+});
+
+document.getElementById('addMark').addEventListener('click', () => addMark(vid.currentTime || 0));
+document.getElementById('clearMarks').addEventListener('click', () => {
+  if (!marks.length) return;
+  marks = []; saveMarks(); renderMarks();
+});
+
+/* ══════════════════════════════════════════
+   导出位置：浏览器下载文件夹（用户定稿，不再要直存桌面）
+   ⚠️ 本页**绝不调用 showDirectoryPicker**：
+      Chrome 在这台机器上把桌面根目录（OneDrive 重定向）判成"系统文件夹"，
+      弹一次必失败一次。也不依赖任何本地服务 —— 一律浏览器下载，简单可预期。
+   ══════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════
+   一键导出
+   首选：WebCodecs(VideoEncoder + AudioEncoder) + mp4-muxer
+        → 标准（非分片）MP4：文件头里有正确总时长，剪映/PR 正常识别
+   回退：MediaRecorder —— 产出分片流，时长元数据缺失，
+        剪映会把时长读成几万小时（之前踩的就是这个坑）
+   ══════════════════════════════════════════ */
+const exportBtn = document.getElementById('exportBtn');
+const recState  = document.getElementById('recState');
+const countEl   = document.getElementById('count');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const CVW = 1080, CVH = 1920, FPS = 30, VBPS = 12000000;
+const HAS_WC = !!(window.VideoEncoder && window.AudioEncoder && window.Mp4Muxer);
+
+let rec = null;                       /* 当前录制会话 */
+let recTimer = null, recT0 = 0, counting = false;
+let audioCtx = null, audioSrc = null, aDest = null;
+
+function pad2(n){ return String(n).padStart(2, '0'); }
+function stampName(ext){
+  const d = new Date();
+  return '画质菜单_' + pad2(d.getMonth()+1) + pad2(d.getDate()) + '_' +
+         pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '.' + ext;
+}
+
+function pickMime(){
+  const cands = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  for (const c of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+  return '';
+}
+
+/* 保存：一律浏览器下载（下载文件夹可在浏览器设置里改），不弹任何框 */
+async function saveBlob(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  recState.textContent = '✓ 已下载 ' + name +
+    '（浏览器下载文件夹，' + (blob.size/1048576).toFixed(1) + ' MB）';
+}
+
+/* ── 音频图：createMediaElementSource 只能建一次，所以全局复用 ── */
+async function ensureAudio(){
+  if (!vid.src) return null;
+  try{
+    if (!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioSrc = audioCtx.createMediaElementSource(vid);
+      audioSrc.connect(audioCtx.destination);              /* 照常外放 */
+      aDest = audioCtx.createMediaStreamDestination();     /* MediaRecorder 回退用 */
+      audioSrc.connect(aDest);
+    }
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    return audioCtx;
+  }catch(e){ return null; }
+}
+
+function videoHasAudio(){
+  try{
+    const s = vid.captureStream ? vid.captureStream() : null;
+    const has = !!(s && s.getAudioTracks().length);
+    if (s) s.getTracks().forEach(t => t.stop());
+    return has;
+  }catch(e){ return false; }
+}
+
+/* ── PCM 采集 worklet（给 AudioEncoder 喂 f32-planar） ── */
+const PCM_TAP = `class PCMTap extends AudioWorkletProcessor{
+  process(inputs){
+    const ch = inputs[0];
+    if (ch && ch[0] && ch[0].length){
+      this.port.postMessage([ch[0].slice(0), (ch[1] || ch[0]).slice(0)]);
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-tap', PCMTap);`;
+
+/* ── 挑一个硬件支持的 H.264 配置 ── */
+async function pickVideoCfg(){
+  const cands = ['avc1.640033', 'avc1.640028', 'avc1.4d0028', 'avc1.42E01E'];
+  for (const codec of cands){
+    const cfg = {codec, width:CVW, height:CVH, bitrate:VBPS, framerate:FPS,
+                 avc:{format:'avc'}};
+    try{
+      const r = await VideoEncoder.isConfigSupported(cfg);
+      if (r && r.supported) return r.config || cfg;
+    }catch(e){}
+  }
+  return null;
+}
+
+/* ══════ 主路径：WebCodecs → 标准 MP4 ══════ */
+async function startWC(){
+  const cfg = await pickVideoCfg();
+  if (!cfg) return false;
+
+  await ensureAudio();
+  const wantAudio = !!audioCtx && !vid.muted && videoHasAudio();
+  const rate = audioCtx ? audioCtx.sampleRate : 48000;
+
+  const MM = window.Mp4Muxer;
+  const muxer = new MM.Muxer({
+    target: new MM.ArrayBufferTarget(),
+    video: {codec:'avc', width:CVW, height:CVH, frameRate:FPS},
+    ...(wantAudio ? {audio:{codec:'aac', sampleRate:rate, numberOfChannels:2}} : {}),
+    fastStart: 'in-memory',
+    /* 首帧时间戳几乎不可能正好是 0（rAF 有几十毫秒偏差），
+       默认 strict 会直接抛 "first chunk ... timestamp of 0" 把导出搞崩，
+       改成 offset：各轨自动归零，A/V 仍按真实时间对齐 */
+    firstTimestampBehavior: 'offset',
+  });
+
+  const vEnc = new VideoEncoder({
+    output: (c, m) => muxer.addVideoChunk(c, m),
+    error: e => console.error('[VideoEncoder]', e),
+  });
+  vEnc.configure(cfg);
+
+  rec = {mode:'wc', muxer, vEnc, aEnc:null, node:null,
+         stopped:false, vCount:0, vLast:0, aSamples:0};
+
+  /* 音频轨 */
+  if (wantAudio){
+    try{
+      const url = URL.createObjectURL(new Blob([PCM_TAP], {type:'application/javascript'}));
+      await audioCtx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+
+      const aEnc = new AudioEncoder({
+        output: (c, m) => muxer.addAudioChunk(c, m),
+        error: e => console.error('[AudioEncoder]', e),
+      });
+      aEnc.configure({codec:'mp4a.40.2', sampleRate:rate,
+                      numberOfChannels:2, bitrate:128000});
+
+      const node = new AudioWorkletNode(audioCtx, 'pcm-tap');
+      node.port.onmessage = ev => {
+        if (!rec || rec.stopped || !rec.aEnc) return;
+        const [L, R] = ev.data;
+        const n = L.length;
+        const buf = new Float32Array(n * 2);
+        buf.set(L, 0); buf.set(R, n);
+        try{
+          const ad = new AudioData({
+            format:'f32-planar', sampleRate:rate,
+            numberOfFrames: n, numberOfChannels: 2,
+            timestamp: Math.round(rec.aSamples / rate * 1e6),
+            data: buf,
+          });
+          rec.aEnc.encode(ad);
+          ad.close();
+        }catch(e){}
+        rec.aSamples += n;
+      };
+      audioSrc.connect(node);
+      rec.aEnc = aEnc; rec.node = node;
+    }catch(e){
+      console.warn('音频采集失败，导出无声版', e);
+    }
+  }
+
+  /* 视频帧：rAF 每两帧取一帧（60Hz → 30fps），时间戳用真实时间 */
+  recT0 = performance.now();
+  rec.vLast = 0;
+  const vLoop = () => {
+    if (!rec || rec.stopped) return;
+    requestAnimationFrame(vLoop);
+    const now = performance.now();
+    if (now - rec.vLast < 1000/FPS - 2) return;
+    if (rec.vEnc.encodeQueueSize > 6) return;      /* 编码器积压就丢一帧，避免内存爆 */
+    rec.vLast = now;
+    let frame;
+    try{ frame = new VideoFrame(cv, {timestamp: Math.round((now - recT0) * 1000)}); }
+    catch(e){ return; }
+    try{ rec.vEnc.encode(frame, {keyFrame: rec.vCount % (FPS * 2) === 0}); }catch(e){}
+    frame.close();
+    rec.vCount++;
+  };
+  requestAnimationFrame(vLoop);
+
+  exportBtn.textContent = '⏹ 停止导出';
+  exportBtn.classList.add('rec');
+  recTimer = setInterval(() => {
+    recState.textContent = '● 录制中 ' + fmt((performance.now()-recT0)/1000) +
+      ' —— 标准 MP4，点停止结束';
+  }, 250);
+  return true;
+}
+
+async function stopWC(){
+  const r = rec;
+  r.stopped = true;
+  clearInterval(recTimer);
+  exportBtn.textContent = '⏳ 正在封装…';
+  exportBtn.disabled = true;
+
+  try{
+    if (r.node && audioSrc){ try{ audioSrc.disconnect(r.node); }catch(e){} }
+    if (r.node) r.node.port.onmessage = null;
+
+    await r.vEnc.flush();
+    if (r.aEnc){ try{ await r.aEnc.flush(); }catch(e){} }
+    r.muxer.finalize();
+
+    const blob = new Blob([r.muxer.target.buffer], {type:'video/mp4'});
+    rec = null;
+    exportBtn.textContent = '⏺ 导出画面（含菜单+鼠标）';
+    exportBtn.classList.remove('rec');
+    exportBtn.disabled = false;
+    recState.textContent = '正在保存…';
+    await saveBlob(blob, stampName('mp4'));
+  }catch(e){
+    console.error(e);
+    rec = null;
+    exportBtn.textContent = '⏺ 导出画面（含菜单+鼠标）';
+    exportBtn.classList.remove('rec');
+    exportBtn.disabled = false;
+    recState.textContent = '导出失败：' + (e && e.message ? e.message : e);
+  }
+}
+
+/* ══════ 回退路径：MediaRecorder ══════ */
+async function startMR(){
+  await ensureAudio();
+  const stream = cv.captureStream(30);
+  if (aDest) aDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+
+  const mime = pickMime();
+  const mr = new MediaRecorder(stream, mime ? {mimeType:mime, videoBitsPerSecond:VBPS} : undefined);
+  const chunks = [];
+  rec = {mode:'mr', mr, chunks, stopped:false};
+
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => {
+    const type = mr.mimeType || mime || 'video/webm';
+    const ext  = type.includes('mp4') ? 'mp4' : 'webm';
+    const blob = new Blob(chunks, {type});
+    rec = null;
+    clearInterval(recTimer);
+    exportBtn.textContent = '⏺ 导出画面（含菜单+鼠标）';
+    exportBtn.classList.remove('rec');
+    recState.textContent = '正在保存…（兼容模式：个别软件可能读不到时长）';
+    await saveBlob(blob, stampName(ext));
+  };
+  mr.start(250);
+
+  recT0 = performance.now();
+  exportBtn.textContent = '⏹ 停止导出';
+  exportBtn.classList.add('rec');
+  recTimer = setInterval(() => {
+    recState.textContent = '● 录制中 ' + fmt((performance.now()-recT0)/1000) + ' —— 兼容模式';
+  }, 250);
+  return true;
+}
+
+exportBtn.addEventListener('click', async () => {
+  if (rec){
+    if (rec.mode === 'wc') await stopWC();
+    else rec.mr.stop();
+    return;
+  }
+  if (counting) return;
+
+  counting = true;
+  exportBtn.disabled = true;
+  /* 3 秒倒数（DOM 层，不会进画面） */
+  countEl.style.display = 'flex';
+  for (let n = 3; n >= 1; n--){
+    countEl.textContent = n;
+    countEl.animate(
+      [{transform:'scale(1.45)', opacity:.25}, {transform:'scale(1)', opacity:1}],
+      {duration:300, easing:'ease-out'}
+    );
+    recState.textContent = n + ' 秒后开始录制…';
+    await sleep(1000);
+  }
+  countEl.style.display = 'none';
+  counting = false;
+  exportBtn.disabled = false;
+
+  /* 开录：优先 WebCodecs（标准 MP4），失败回退 MediaRecorder */
+  let ok = false;
+  if (HAS_WC){
+    try{ ok = await startWC(); }
+    catch(e){ console.warn('WebCodecs 起不来，回退兼容模式', e); rec = null; ok = false; }
+  }
+  if (!ok){
+    rec = null;
+    recState.textContent = '当前环境不支持标准 MP4 编码，改用兼容模式…';
+    await startMR();
+  }
+});
+
+/* ══════════════════════════════════════════
+   面板控件
+   ══════════════════════════════════════════ */
+const sw = document.getElementById('sw');
+const cw = document.getElementById('cw');
+sw.addEventListener('input', () => { cursorSW = +sw.value; document.getElementById('vSw').textContent = (+sw.value).toFixed(2); });
+cw.addEventListener('input', () => { cursorW = +cw.value;  document.getElementById('vCw').textContent = cw.value + 'px'; });
+
+/* ── 每档像素强度：4 条独立滑杆（对数刻度，1px 精度到 1080px） ── */
+const stList  = document.getElementById('stlist');
+const stInputs = [], stVals = [], stNames = [], stRows = [];
+
+function paintSt(i){
+  const e = effs[i];
+  const on = e < 1080;
+  stVals[i].textContent = on ? e + 'px' : '原画';
+  stVals[i].title = on ? ('等效 ' + e + 'px 宽，像素块约 ' + Math.round(1080 / e) + 'px')
+                       : '不做像素化，直接原画';
+  stRows[i].classList.toggle('off', !on);
+  stNames[i].textContent = labels[i];
+}
+
+for (let i = 0; i < 4; i++){
+  const row = document.createElement('div');
+  row.className = 'stitem';
+  const name = document.createElement('span'); name.className = 'stname';
+  const rng  = document.createElement('input');
+  rng.type = 'range'; rng.min = 0; rng.max = 1000; rng.step = 1;
+  rng.value = eff2t(effs[i]);
+  const val = document.createElement('span'); val.className = 'stval';
+  row.append(name, rng, val);
+  stList.appendChild(row);
+  stInputs.push(rng); stVals.push(val); stNames.push(name); stRows.push(row);
+
+  rng.addEventListener('input', () => {
+    effs[i] = t2eff(+rng.value);
+    paintSt(i);
+  });
+}
+for (let i = 0; i < 4; i++) paintSt(i);
+
+document.getElementById('resetSt').addEventListener('click', () => {
+  effs = LEVELS_DEF.slice();
+  for (let i = 0; i < 4; i++){
+    stInputs[i].value = eff2t(effs[i]);
+    paintSt(i);
+  }
+});
+
+document.querySelectorAll('#bgs .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#bgs .chip').forEach(c => c.classList.remove('on'));
+    chip.classList.add('on');
+    bg = chip.dataset.bg;
+  });
+});
+document.querySelectorAll('#labels input').forEach((inp, i) => {
+  inp.addEventListener('input', () => {
+    labels[i] = inp.value.trim() || '—';
+    if (stNames[i]) stNames[i].textContent = labels[i];
+  });
+});
+
+/* ══════════════════════════════════════════
+   键盘
+   ══════════════════════════════════════════ */
+document.addEventListener('keydown', e => {
+  if (e.key === 'h' || e.key === 'H'){ panel.classList.toggle('hide'); tlEl.classList.toggle('hide'); return; }
+  if (e.key === ' '){ e.preventDefault(); vid.paused ? vid.play() : vid.pause(); return; }
+  if (e.key === 'ArrowLeft'  && vid.duration){ vid.currentTime = Math.max(0, vid.currentTime - 5); return; }
+  if (e.key === 'ArrowRight' && vid.duration){ vid.currentTime = Math.min(vid.duration, vid.currentTime + 5); return; }
+  if (/^[1-4]$/.test(e.key)){ choose(+e.key - 1); return; }
+  if (!open) return;
+  if (e.key === 'Escape'){ closeMenu(); }
+  else if (e.key === 'ArrowDown'){ e.preventDefault(); hot = (hot+1) % 4; }
+  else if (e.key === 'ArrowUp'){ e.preventDefault(); hot = (hot+3) % 4; }
+  else if (e.key === 'Enter'){ choose(hot); }
+});
+
+/* ══════════════════════════════════════════
+   自适应 + URL 参数
+   ══════════════════════════════════════════ */
+function fit(){
+  const s = Math.min(innerWidth / 1080, innerHeight / 1920);
+  stage.style.transform = `translate(-50%,-50%) scale(${s})`;
+  fitTL();
+}
+addEventListener('resize', fit);
+fit();
+syncChips();
+
+const QS = new URLSearchParams(location.search);
+if (QS.has('open')) openMenu();
+/* ?mouse=x,y 可预置光标位置（截图/调试用） */
+if (QS.get('mouse')){
+  const [mx, my] = QS.get('mouse').split(',').map(Number);
+  if (Number.isFinite(mx) && Number.isFinite(my)) mouse = {x:mx, y:my};
+}
+if (QS.get('src')){
+  vid.src = QS.get('src');
+  vid.play().catch(() => {});
+}
+</script>
+</body>
+</html>

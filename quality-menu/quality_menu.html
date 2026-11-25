@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>画质选择菜单 · 绿幕素材</title>
+<style>
+  /* 全屏纯绿，方便剪映色度抠图（拾取 #00FF00） */
+  html,body{margin:0;padding:0;background:#00FF00;overflow:hidden;}
+  #stage{
+    position:relative;width:1080px;height:1920px;
+    background:#00FF00;
+    font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    cursor:none;
+  }
+  /* ── 顶部收起的下拉框（Win 经典样式） ── */
+  #combo{
+    position:absolute;left:36px;top:64px;width:900px;height:104px;
+    background:#fff;display:flex;align-items:center;
+    border:3px solid;border-color:#e8e8e8 #3a3a3a #3a3a3a #e8e8e8;
+    outline:2px solid #7a7a7a;
+    box-sizing:border-box;
+  }
+  #combo.pressed{border-color:#3a3a3a #e8e8e8 #e8e8e8 #3a3a3a;}
+  #comboText{font-size:56px;font-weight:700;color:#000;padding-left:26px;letter-spacing:1px;}
+  #btn{
+    position:absolute;right:0;top:0;width:98px;height:100%;
+    background:#f0f0f0;display:flex;align-items:center;justify-content:center;
+    border-left:3px solid;border-color:#a8a8a8 #3a3a3a #3a3a3a #e8e8e8;
+    font-size:34px;color:#000;
+  }
+  /* ── 展开的选项菜单 ── */
+  #menu{
+    position:absolute;left:36px;top:196px;width:980px;height:400px;
+    background:#fff;display:none;
+    border:3px solid;border-color:#f2f2f2 #4a4a4a #4a4a4a #f2f2f2;
+    outline:2px solid #7a7a7a;
+    box-shadow:6px 6px 0 rgba(0,0,0,.28);
+    box-sizing:border-box;flex-direction:column;
+  }
+  .item{
+    height:98px;line-height:98px;padding-left:30px;
+    font-size:58px;font-weight:700;color:#000;letter-spacing:1px;
+    box-sizing:border-box;flex:1;
+  }
+  .item.hot{background:#000080;color:#fff;}
+  /* ── 鼠标箭头光标（热点 = 尖端，无投影，免得抠像留黑边） ── */
+  #cursor{
+    position:absolute;width:52px;height:87px;
+    display:none;user-select:none;pointer-events:none;
+  }
+  #cursor svg{display:block;width:100%;height:100%;}
+  #cursor.snap{transform:scale(.92);transform-origin:2px 2px;}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="combo"><span id="comboText">240p</span><div id="btn">▼</div></div>
+  <div id="menu"></div>
+  <div id="cursor"><svg viewBox="0 0 12 20" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0.7 0.7 L0.7 16.4 L4.4 12.9 L7.0 19.2 L9.4 18.2 L6.8 12.0 L11.3 12.0 Z"
+          fill="#ffffff" stroke="#000000" stroke-width="1.15" stroke-linejoin="round"/>
+  </svg></div>
+</div>
+
+<script>
+/* ─────────────────────────────────────────────
+   时间轴（秒）
+   0.60 菜单展开
+   0.80-1.35 悬停 240p
+   1.35-1.85 悬停 480p
+   1.85-2.65 悬停 720p（停留，对应截图那一帧）
+   2.65-3.35 悬停 1080p
+   3.35 点击：菜单收起，下拉框显示 1080p
+   3.35-6.80 定格 → 循环
+   用 ?t=2.2 可以静态渲染某一帧（给无头浏览器截图用）
+───────────────────────────────────────────── */
+const MENU_OPEN = 0.60, CLICK = 3.35, END = 6.80;
+const START_LABEL = '240p';   /* 点击前下拉框显示（= 当前画质） */
+const END_LABEL   = '1080p';  /* 点击后下拉框显示（= 点最高清） */
+const STEPS = [
+  {label:'240p',  from:0.80, to:1.35},
+  {label:'480p',  from:1.35, to:1.85},
+  {label:'720p',  from:1.85, to:2.65},
+  {label:'1080p', from:2.65, to:CLICK},
+];
+const ITEM_H = 98, MENU_TOP = 196, CUR_X = 36 + 268;
+
+const menu = document.getElementById('menu');
+const comboText = document.getElementById('comboText');
+const combo = document.getElementById('combo');
+const cursorEl = document.getElementById('cursor');
+
+STEPS.forEach(s => {
+  const d = document.createElement('div');
+  d.className = 'item'; d.textContent = s.label;
+  menu.appendChild(d);
+});
+const items = [...menu.children];
+
+function lerp(a, b, u){ return a + (b - a) * u; }
+function ease(u){ return u * u * (3 - 2 * u); }
+
+/* 光标 y 的关键帧：跟随悬停行，带 0.15s 缓动 */
+function cursorY(t){
+  const keys = [[0.70, STEPS[0]]];
+  STEPS.forEach((s, i) => {
+    keys.push([s.from, i === 0 ? STEPS[0] : STEPS[i - 1]]);
+    keys.push([Math.min(s.from + 0.15, s.to), s]);
+  });
+  keys.push([CLICK, STEPS[STEPS.length - 1]]);
+  keys.push([CLICK + 0.55, STEPS[STEPS.length - 1]]);
+  if (t <= keys[0][0]) return rowY(STEPS[0]);
+  for (let i = 0; i < keys.length - 1; i++){
+    const [t0, s0] = keys[i], [t1, s1] = keys[i + 1];
+    if (t >= t0 && t <= t1){
+      const u = t1 > t0 ? ease((t - t0) / (t1 - t0)) : 1;
+      return lerp(rowY(s0), rowY(s1), u);
+    }
+  }
+  return rowY(STEPS[STEPS.length - 1]);
+}
+function rowY(s){ return MENU_TOP + STEPS.indexOf(s) * ITEM_H + ITEM_H / 2 + 10; }
+
+function stateAt(t){
+  t = ((t % END) + END) % END;            /* 循环 */
+  const open = t >= MENU_OPEN && t < CLICK;
+  menu.style.display = open ? 'flex' : 'none';
+
+  /* 下拉框文字：点击前是 240p，点击后变 1080p */
+  comboText.textContent = t < CLICK ? START_LABEL : END_LABEL;
+  combo.classList.toggle('pressed', t >= CLICK && t < CLICK + 0.15);
+
+  /* 高亮行 */
+  let hot = -1;
+  if (open) STEPS.forEach((s, i) => { if (t >= s.from && t < s.to) hot = i; });
+  items.forEach((el, i) => el.classList.toggle('hot', i === hot));
+
+  /* 光标：0.70 淡入，点击后 0.55s 内淡出 */
+  let cv = 0;
+  if (t >= 0.70 && t < CLICK + 0.55){
+    cv = t < 0.90 ? (t - 0.70) / 0.20
+       : t > CLICK ? 1 - (t - CLICK) / 0.55
+       : 1;
+  }
+  cursorEl.style.display = cv > 0.01 ? 'block' : 'none';
+  cursorEl.style.opacity = Math.max(0, Math.min(1, cv));
+  cursorEl.classList.toggle('snap', t >= CLICK - 0.06 && t < CLICK + 0.10);
+  if (cv > 0.01){
+    cursorEl.style.left = (CUR_X - 3) + 'px';
+    cursorEl.style.top  = (cursorY(Math.min(t, CLICK)) - 3) + 'px';
+  }
+}
+
+/* ── 静态模式（?t=秒）：给无头浏览器逐帧截图 ── */
+const q = new URLSearchParams(location.search).get('t');
+if (q !== null){
+  stateAt(parseFloat(q));
+} else {
+  /* ── 动画模式：自动循环；点一下画面立刻从头重播 ── */
+  let t0 = performance.now();
+  function frame(now){ stateAt((now - t0) / 1000); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+  document.getElementById('stage').addEventListener('click', () => { t0 = performance.now(); });
+}
+</script>
+</body>
+</html>
