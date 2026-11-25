@@ -35,13 +35,26 @@
 
 `pixel-ladder/示例_画质阶梯.mp4` 是效果示例。
 
-## 三、早期版本（留作迭代记录）
+## 三、剪映版（绿幕菜单）
 
-- `quality-menu/quality_menu.html`：最早的静态绿幕菜单，纯绿背景方便剪映色度抠图；
-- `quality-menu/render.sh`：用 Edge 无头截图逐帧合成绿幕 MP4 的历史脚本，在 Git Bash / WSL 下运行。默认 Edge 路径是 Windows 常见安装位置，可设置环境变量 `EDGE` 覆盖，例如 `EDGE="/path/to/msedge.exe" ./render.sh`；
-- `quality-menu/绿幕_画质菜单.mp4`：早期脚本生成的成片示例。
+**它是什么**：一个做好的绿幕视频 `quality-menu/绿幕_画质菜单.mp4`（57KB，约 6.8 秒）——纯绿底 + Windows 下拉菜单，鼠标依次点 240p / 480p / 720p / 1080p。叠在自己的视频上、抠掉绿底，就是「选画质」的动画。
 
-新项目直接用最终交互版即可，这几个主要是留存迭代过程。
+**只需要下载这一个 MP4**，不用装任何东西，有剪映就行。`quality_menu.html` 和 `render.sh` 是给想改菜单内容的人用的，直接用 MP4 不需要管。
+
+**剪映里怎么用**：
+
+1. 主视频拖进剪映；
+2. 画中画 → 新增画中画 → 导入 `绿幕_画质菜单.mp4`；
+3. 选中这段画中画 → 抠像 → **色度抠图**；
+4. 取色器点画面里的绿色 → 绿底消失，只剩菜单和鼠标；
+5. 拖位置、调大小，导出。
+
+**想改菜单文字或档位**：改 `quality-menu/quality_menu.html` 后用 `render.sh` 重新渲染（下面的历史脚本）。新项目直接用第一节的交互版更省事。
+
+历史文件：
+
+- `quality-menu/quality_menu.html`：静态绿幕菜单源文件，纯绿背景方便剪映色度抠图；
+- `quality-menu/render.sh`：用 Edge 无头截图逐帧合成绿幕 MP4 的脚本，在 Git Bash / WSL 下运行。默认 Edge 路径是 Windows 常见安装位置，可设置环境变量 `EDGE` 覆盖，例如 `EDGE="/path/to/msedge.exe" ./render.sh`；脚本里的 FF 仍指向旧目录 `../ffmpeg/bin/ffmpeg.exe`，若要用请先改成自己机器上的 ffmpeg 路径。
 
 ## 依赖安装（自己装，不随仓库提供）
 
